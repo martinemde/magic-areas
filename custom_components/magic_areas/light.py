@@ -281,14 +281,24 @@ class AreaLightGroup(MagicLightGroup):
 
         self.update_attributes()
 
-        # Subscribe to area state changes
+        # Subscribe to area state changes (area-specific event)
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,
-                MagicAreasEvents.AREA_STATE_CHANGED,
+                f"{MagicAreasEvents.AREA_STATE_CHANGED}_{self.area.id}",
                 self.area_state_changed,
             )
         )
+
+        # Also subscribe to exterior area events if needed for EXTERIOR_BRIGHT trigger
+        if LightGroupTurnOffWhen.EXTERIOR_BRIGHT in self.turn_off_when:
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    f"{MagicAreasEvents.AREA_STATE_CHANGED}_exterior",
+                    self.area_state_changed,
+                )
+            )
 
         # Subscribe to child light state changes to detect manual control
         @callback
@@ -684,16 +694,7 @@ class AreaLightGroup(MagicLightGroup):
                 self._turn_off_lights()
             return
 
-        # Only process events for our own area from here on
-        if area_id != self.area.id:
-            _LOGGER.debug(
-                "%s (%s): Ignoring event from different area: %s",
-                self.area.name,
-                self.name,
-                area_id,
-            )
-            return
-
+        # Process events for our own area
         current_states = self._get_current_area_states()
         _LOGGER.debug(
             "%s (%s): Current area states: %s",

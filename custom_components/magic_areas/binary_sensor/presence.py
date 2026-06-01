@@ -68,6 +68,31 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
 
         _LOGGER.debug("%s: presence tracker initialized", self.area.name)
 
+    def _update_light_sensor_listener(self, new_light_sensor: str) -> None:
+        """Update light sensor listener when area light sensor changes."""
+        self.logger.info(
+            "%s: Updating light sensor listener to %s",
+            self.area.name,
+            new_light_sensor,
+        )
+
+        # Add new listener
+        self.async_on_remove(
+            async_track_state_change_event(
+                self.hass,
+                [new_light_sensor],
+                self._secondary_state_change,
+            )
+        )
+
+        # Refresh all metadata (includes light_sensor)
+        if hasattr(self, "_attr_extra_state_attributes"):
+            self._attr_extra_state_attributes.update(self.get_metadata())
+
+        # Trigger immediate state update with new sensor
+        self._update_area_states()
+        self.schedule_update_ha_state()
+
     def _setup_tracking_listeners(self) -> None:
         # Track presence sensor
         self.async_on_remove(
@@ -90,6 +115,15 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
                     self._secondary_state_change,
                 )
             )
+
+        # Listen for area light sensor updates
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{MagicAreasEvents.AREA_LIGHT_SENSOR_CHANGED}_{self.area.id}",
+                self._update_light_sensor_listener,
+            )
+        )
 
         # Track ALL secondary states (sleep + user-defined) from single source
         secondary_state_entities_dict = self.area.secondary_state_entities
@@ -136,6 +170,7 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
             AreaAttributes.LAST_ACTIVE_SENSORS.value: self._last_active_sensors,
             CommonAttributes.STATES.value: self.area.states,
             AreaAttributes.CLEAR_TIMEOUT.value: self._get_clear_timeout() / ONE_MINUTE,
+            AreaAttributes.LIGHT_SENSOR.value: self.area.area_light_sensor,
         }
 
     # Helpers
@@ -270,7 +305,10 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
             str(lost_states),
         )
         dispatcher_send(
-            self.hass, MagicAreasEvents.AREA_STATE_CHANGED, self.area.id, states_tuple
+            self.hass,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{self.area.id}",
+            self.area.id,
+            states_tuple,
         )
 
     # Area state calculations
@@ -554,7 +592,9 @@ class AreaStateBinarySensor(AreaStateTrackerEntity, BinarySensorEntity):
     async def _setup_listeners(self) -> None:
         # Setup state change listener
         async_dispatcher_connect(
-            self.hass, MagicAreasEvents.AREA_STATE_CHANGED, self._area_state_changed
+            self.hass,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{self.area.id}",
+            self._area_state_changed,
         )
 
         self._setup_tracking_listeners()
@@ -589,15 +629,6 @@ class AreaStateBinarySensor(AreaStateTrackerEntity, BinarySensorEntity):
 
         # pylint: disable-next=unused-variable
         new_states, old_states = states_tuple
-
-        if area_id != self.area.id:
-            _LOGGER.debug(
-                "%s: Area state change event not for us. Skipping. (req: %s}/self: %s)",
-                self.area.name,
-                area_id,
-                self.area.id,
-            )
-            return
 
         _LOGGER.debug(
             "%s: Binary presence sensor detected area state change.", self.area.name

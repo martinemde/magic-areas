@@ -30,7 +30,7 @@ class TestExteriorBrightness:
         # Exterior area becomes bright (dispatch event)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_exterior",
             "exterior",
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -57,7 +57,7 @@ class TestExteriorBrightness:
         # Exterior becomes bright
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{'exterior'}",
             "exterior",
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -85,7 +85,7 @@ class TestExteriorBrightness:
         # Own area becomes bright (not exterior) - dispatch as own area
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -133,7 +133,7 @@ class TestExteriorBrightness:
         # Exterior becomes bright (should still turn off despite manual mode)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{'exterior'}",
             "exterior",
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -160,7 +160,7 @@ class TestExteriorBrightness:
         # Exterior becomes dark (not bright)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{'exterior'}",
             "exterior",
             ({AreaStates.DARK}, {AreaStates.BRIGHT}),
         )
@@ -187,7 +187,7 @@ class TestExteriorBrightness:
         # Exterior gains bright along with other states
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{'exterior'}",
             "exterior",
             ({AreaStates.BRIGHT, AreaStates.EXTENDED}, {AreaStates.DARK}),
         )

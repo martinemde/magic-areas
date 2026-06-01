@@ -50,7 +50,7 @@ class TestTriggers:
         area_id = setup_basic_light_group["config_entry"].data["id"]
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             (set(), set()),  # No new or lost states
         )
@@ -104,7 +104,7 @@ class TestTriggers:
         # Event: Area gains dark state but stays clear
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.DARK}, {AreaStates.BRIGHT}),
         )
@@ -154,7 +154,7 @@ class TestTriggers:
         # Event: Area becomes dark but stays clear
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.DARK}, {AreaStates.BRIGHT}),
         )
@@ -196,7 +196,7 @@ class TestTriggers:
         await trigger_occupancy(hass, motion_sensor, occupied=True)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -206,7 +206,7 @@ class TestTriggers:
         # STATE_GAIN trigger (dark gained while occupied)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.DARK}, {AreaStates.BRIGHT}),
         )

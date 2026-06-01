@@ -58,7 +58,7 @@ class TestDarknessRequirement:
         # Setup: Make area bright
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -90,7 +90,7 @@ class TestDarknessRequirement:
         # Event: Area becomes bright (while still occupied)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -119,7 +119,7 @@ class TestDarknessRequirement:
         # Simulate interior lights making room bright
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -164,7 +164,7 @@ class TestDarknessRequirement:
             # Becomes bright
             dispatcher_send(
                 hass,
-                MagicAreasEvents.AREA_STATE_CHANGED,
+                f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
                 area_id,
                 ({AreaStates.BRIGHT}, {AreaStates.DARK}),
             )
@@ -174,7 +174,7 @@ class TestDarknessRequirement:
             # Becomes dark again
             dispatcher_send(
                 hass,
-                MagicAreasEvents.AREA_STATE_CHANGED,
+                f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
                 area_id,
                 ({AreaStates.DARK}, {AreaStates.BRIGHT}),
             )

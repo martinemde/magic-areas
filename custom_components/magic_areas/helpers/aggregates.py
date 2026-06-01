@@ -81,6 +81,12 @@ def should_create_light_aggregate(area: MagicArea) -> bool:
     if BINARY_SENSOR_DOMAIN not in area.entities:
         return False
 
+    # Light must be in configured device classes
+    if BinarySensorDeviceClass.LIGHT not in area.config.get(
+        AggregateOptions.BINARY_SENSOR_DEVICE_CLASSES
+    ):
+        return False
+
     # Count light binary sensors
     light_sensors = [
         entity
@@ -89,15 +95,13 @@ def should_create_light_aggregate(area: MagicArea) -> bool:
         and entity[ATTR_DEVICE_CLASS] == BinarySensorDeviceClass.LIGHT
     ]
 
+    # Must have at least one light sensor
+    if len(light_sensors) == 0:
+        return False
+
     # Must meet minimum entities requirement
     min_entities = area.config.get(AggregateOptions.MIN_ENTITIES)
     if len(light_sensors) < min_entities:
-        return False
-
-    # Light must be in configured device classes
-    if BinarySensorDeviceClass.LIGHT not in area.config.get(
-        AggregateOptions.BINARY_SENSOR_DEVICE_CLASSES
-    ):
         return False
 
     return True

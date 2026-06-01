@@ -58,7 +58,9 @@ class ClimateControlSwitch(SwitchBase):
 
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, MagicAreasEvents.AREA_STATE_CHANGED, self.area_state_changed
+                self.hass,
+                f"{MagicAreasEvents.AREA_STATE_CHANGED}_{self.area.id}",
+                self.area_state_changed,
             )
         )
 
@@ -67,15 +69,6 @@ class ClimateControlSwitch(SwitchBase):
 
         if not self.is_on:
             self.logger.debug("%s: Control disabled. Skipping.", self.name)
-            return
-
-        if area_id != self.area.id:
-            _LOGGER.debug(
-                "%s: Area state change event not for us. Skipping. (event: %s/self: %s)",
-                self.name,
-                area_id,
-                self.area.id,
-            )
             return
 
         new_states, lost_states = states_tuple

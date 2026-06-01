@@ -24,6 +24,7 @@ from custom_components.magic_areas.const import (
     MagicConfigEntryVersion,
     PresenceTrackingOptions,
 )
+from custom_components.magic_areas.const.aggregates import AggregateOptions
 from custom_components.magic_areas.const.light_groups import (
     LightGroupEntryOptions,
     LightGroupOptions,
@@ -329,8 +330,20 @@ def _migrate_v2_1_to_v2_2(config_entry: ConfigEntry) -> dict:
     new_features: dict[str, Any] = {}
 
     for feature_key, feature_config in old_features.items():
-        if feature_key == "light_groups":
+        if feature_key == LightGroupOptions.FEATURE_KEY:
             new_features[feature_key] = _migrate_light_groups(feature_config)
+        elif feature_key == AggregateOptions.FEATURE_KEY:
+            # Sanitize min_entities to ensure it's at least 1
+            sanitized_config = feature_config.copy()
+            if AggregateOptions.MIN_ENTITIES.key in sanitized_config:
+                sanitized_config[AggregateOptions.MIN_ENTITIES.key] = max(
+                    1,
+                    sanitized_config.get(
+                        AggregateOptions.MIN_ENTITIES.key,
+                        AggregateOptions.MIN_ENTITIES.default,
+                    ),
+                )
+            new_features[feature_key] = sanitized_config
         else:
             # All other feature configs (aggregates, health, wasp_in_a_box, …)
             # are copied verbatim — their internal keys did not change.

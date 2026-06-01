@@ -533,6 +533,7 @@ class MagicAreasEvents(StrEnum):
 
     AREA_STATE_CHANGED = "magicareas_area_state_changed"
     AREA_LOADED = "magicareas_area_loaded"
+    AREA_LIGHT_SENSOR_CHANGED = "magicareas_area_light_sensor_changed"
 
 
 class SelectorTranslationKeys(StrEnum):

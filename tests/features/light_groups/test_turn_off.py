@@ -71,7 +71,7 @@ class TestTurnOff:
         # Exterior area becomes bright
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_exterior",
             "exterior",
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -149,7 +149,7 @@ class TestTurnOff:
         # Exterior becomes bright
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{'exterior'}",
             "exterior",
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )
@@ -205,7 +205,7 @@ class TestTurnOff:
         # Own area becomes bright (not exterior)
         dispatcher_send(
             hass,
-            MagicAreasEvents.AREA_STATE_CHANGED,
+            f"{MagicAreasEvents.AREA_STATE_CHANGED}_{area_id}",
             area_id,
             ({AreaStates.BRIGHT}, {AreaStates.DARK}),
         )

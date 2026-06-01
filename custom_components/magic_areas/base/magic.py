@@ -122,10 +122,55 @@ class MagicArea:
 
         self.logger.debug("%s: Primed for initialization.", self.name)
 
+    def _handle_exterior_loaded(
+        self, area_type: str, floor_id: int | None, area_id: str
+    ) -> None:
+        """Re-resolve light sensor when exterior meta-area becomes available."""
+        # Only care about exterior meta-area
+        if area_type != AreaType.META:
+            return
+
+        # Only care about the exterior meta-area specifically
+        if area_id != MetaAreaType.EXTERIOR:  # Check if it's the exterior one
+            return
+
+        # Only re-resolve if currently using sun.sun (the fallback)
+        if self.area_light_sensor != "sun.sun":
+            return
+
+        # Re-resolve to see if we can now use exterior sensors
+        new_light_sensor = self.resolve_light_entity()
+
+        if new_light_sensor != self.area_light_sensor:
+            self.logger.info(
+                "%s: Updating light sensor from %s to %s after exterior area loaded",
+                self.name,
+                self.area_light_sensor,
+                new_light_sensor,
+            )
+            self.area_light_sensor = new_light_sensor
+
+            # Notify presence sensor to update its light sensor listener
+            dispatcher_send(
+                self.hass,
+                f"{MagicAreasEvents.AREA_LIGHT_SENSOR_CHANGED}_{self.id}",
+                new_light_sensor,
+            )
+
     def finalize_init(self):
         """Finalize initialization of the area."""
         # Resolve light entity before marking as initialized
+
         self.area_light_sensor = self.resolve_light_entity()
+
+        # Listen for exterior area loading (if we're using sun.sun fallback)
+        if not self.is_meta() and self.area_light_sensor == "sun.sun":
+            disconnect = async_dispatcher_connect(
+                self.hass,
+                MagicAreasEvents.AREA_LOADED,
+                self._handle_exterior_loaded,
+            )
+            self.hass_config.async_on_unload(disconnect)
 
         self.initialized = True
         self.logger.debug(
@@ -815,6 +860,8 @@ class MagicMetaArea(MagicArea):
         self.hass_config.async_on_unload(disconnect)
         self.hass_config.async_on_unload(self._cancel_reload_task)
 
+        super().finalize_init()
+
     def _cancel_reload_task(self) -> None:
         """Cancel any pending debounced reload task."""
         if self._reload_task and not self._reload_task.done():
@@ -823,8 +870,14 @@ class MagicMetaArea(MagicArea):
 
     def _should_reload_for(self, area_type: str, area_id: str) -> bool:
         """Return True if this meta-area should reload for the given signal."""
+
+        # Don't reload in response to our own AREA_LOADED event
+        if area_id == self.id:
+            return False
+
         if self.slug == MetaAreaType.GLOBAL:
             return True
+
         return area_type == self.slug or area_id in self.child_areas
 
     async def _handle_loaded_area(
