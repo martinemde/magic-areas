@@ -68,6 +68,32 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
 
         _LOGGER.debug("%s: presence tracker initialized", self.area.name)
 
+    # Helpers
+
+    def _valid_on_states(self, additional_states: list[str] | None = None) -> list[str]:
+        """Return valid ON states for entities."""
+
+        valid_states = PRESENCE_SENSOR_VALID_ON_STATES.copy()
+
+        if additional_states:
+            valid_states.extend(additional_states)
+
+        return [STATE_ON] if self.area.is_meta() else valid_states
+
+    def _translate_states_for_display(self, state_slugs: list[str]) -> list[str]:
+        """Convert state slugs to friendly names for display.
+
+        Args:
+            state_slugs: List of state slugs
+
+        Returns:
+            List of friendly names
+
+        """
+        return [self.area.get_state_friendly_name(slug) for slug in state_slugs]
+
+    # Listeners
+
     def _update_light_sensor_listener(self, new_light_sensor: str) -> None:
         """Update light sensor listener when area light sensor changes."""
         self.logger.info(
@@ -151,6 +177,8 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
 
         self.async_on_remove(self._cleanup_timers)
 
+    # Callbacks
+
     @callback
     def _cleanup_timers(self) -> None:
         """Remove pending timers."""
@@ -168,22 +196,12 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
             AreaAttributes.PRESENCE_SENSORS.value: self._sensors,
             CommonAttributes.ACTIVE_SENSORS.value: self._active_sensors,
             AreaAttributes.LAST_ACTIVE_SENSORS.value: self._last_active_sensors,
-            CommonAttributes.STATES.value: self.area.states,
+            CommonAttributes.STATES.value: self._translate_states_for_display(
+                self.area.states
+            ),
             AreaAttributes.CLEAR_TIMEOUT.value: self._get_clear_timeout() / ONE_MINUTE,
             AreaAttributes.LIGHT_SENSOR.value: self.area.area_light_sensor,
         }
-
-    # Helpers
-
-    def _valid_on_states(self, additional_states: list[str] | None = None) -> list[str]:
-        """Return valid ON states for entities."""
-
-        valid_states = PRESENCE_SENSOR_VALID_ON_STATES.copy()
-
-        if additional_states:
-            valid_states.extend(additional_states)
-
-        return [STATE_ON] if self.area.is_meta() else valid_states
 
     # Entity loading
 
@@ -286,8 +304,9 @@ class AreaStateTrackerEntity(BinaryMagicEntity):
         )
 
         if state_changed:
-            # Consider all secondary states new
-            states_tuple = (self.area.states.copy(), [])
+            # Preserve occupancy transition in lost_states when reporting all states
+            occupancy_lost = lost_states & {AreaStates.OCCUPIED, AreaStates.CLEAR}
+            states_tuple = (self.area.states.copy(), list(occupancy_lost))
 
         self._report_state_change(states_tuple)
 

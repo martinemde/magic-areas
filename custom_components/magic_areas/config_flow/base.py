@@ -45,7 +45,17 @@ class ConfigBase:
     def build_selector_select(
         self, options=None, multiple=False, translation_key=EMPTY_STRING
     ):
-        """Build a select dropdown selector."""
+        """Build a select dropdown selector.
+
+        Supports both string options (for translation) and dict options
+        with explicit labels (for user-defined states).
+
+        Args:
+            options: List of options (strings or dicts with value/label)
+            multiple: Allow multiple selection
+            translation_key: Translation key for options
+
+        """
         if not options:
             options = []
 

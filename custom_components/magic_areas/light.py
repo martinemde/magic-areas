@@ -496,7 +496,7 @@ class AreaLightGroup(MagicLightGroup):
 
         # AREA_CLEAR
         if LightGroupTurnOffWhen.AREA_CLEAR in self.turn_off_when:
-            if AreaStates.CLEAR in new_states:
+            if AreaStates.CLEAR in new_states and AreaStates.OCCUPIED in lost_states:
                 _LOGGER.debug(
                     "%s (%s): AREA_CLEAR trigger - turning off",
                     self.area.name,
@@ -511,17 +511,22 @@ class AreaLightGroup(MagicLightGroup):
             )
             return False
 
-        # Check STATE_LOSS
+        # Check STATE_LOSS - turn off when we no longer have any assigned states
         if LightGroupTurnOffWhen.STATE_LOSS in self.turn_off_when:
-            if self.assigned_states and not self.assigned_states.intersection(
-                current_states
-            ):
-                _LOGGER.debug(
-                    "%s (%s): STATE_LOSS trigger - lost all assigned states",
-                    self.area.name,
-                    self.name,
-                )
-                return True
+            if self.area.is_occupied() and self.assigned_states:
+                # Check if we lost any assigned state OR don't have any left after filtering
+                lost_assigned = self.assigned_states.intersection(lost_states)
+                remaining_assigned = self.assigned_states.intersection(current_states)
+
+                if lost_assigned or not remaining_assigned:
+                    if not remaining_assigned:
+                        _LOGGER.debug(
+                            "%s (%s): STATE_LOSS trigger - no assigned states remain (lost: %s)",
+                            self.area.name,
+                            self.name,
+                            lost_assigned or "filtered by priority",
+                        )
+                        return True
 
         # Note: EXTERIOR_BRIGHT is handled separately in area_state_changed
         # Default fail False

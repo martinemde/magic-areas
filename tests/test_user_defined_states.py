@@ -31,8 +31,8 @@ from tests.helpers import (
 from tests.mocks import MockBinarySensor
 
 # Expected state names (slugified)
-EXPECTED_STATE_MOVIE_TIME = "movie_time"
-EXPECTED_STATE_GAMING = "gaming"
+CUSTOM_STATE_MOVIE_TIME = "Movie Time"
+CUSTOM_STATE_STATE_GAMING = "Gaming"
 
 
 @pytest.fixture
@@ -64,11 +64,11 @@ async def setup_user_defined_states(hass):
     data[ConfigDomains.USER_DEFINED_STATES.value] = {
         UserDefinedStateOptions.STATES.key: [
             {
-                UserDefinedStateEntryOptions.NAME.key: "Movie Time",
+                UserDefinedStateEntryOptions.NAME.key: CUSTOM_STATE_MOVIE_TIME,
                 UserDefinedStateEntryOptions.ENTITY.key: movie_mode.entity_id,
             },
             {
-                UserDefinedStateEntryOptions.NAME.key: "Gaming",
+                UserDefinedStateEntryOptions.NAME.key: CUSTOM_STATE_STATE_GAMING,
                 UserDefinedStateEntryOptions.ENTITY.key: gaming_mode.entity_id,
             },
         ]
@@ -106,7 +106,7 @@ class TestUserDefinedStates:
         # Verify area has movie_time state
         area_state = hass.states.get(area_state_id)
         assert_in_attribute(
-            area_state, CommonAttributes.STATES.value, EXPECTED_STATE_MOVIE_TIME
+            area_state, CommonAttributes.STATES.value, CUSTOM_STATE_MOVIE_TIME
         )
 
     async def test_user_defined_state_becomes_inactive(
@@ -128,7 +128,7 @@ class TestUserDefinedStates:
         assert_in_attribute(
             area_state,
             CommonAttributes.STATES.value,
-            EXPECTED_STATE_MOVIE_TIME,
+            CUSTOM_STATE_MOVIE_TIME,
             negate=True,
         )
 
@@ -146,10 +146,10 @@ class TestUserDefinedStates:
         # Verify area has both states
         area_state = hass.states.get(area_state_id)
         assert_in_attribute(
-            area_state, CommonAttributes.STATES.value, EXPECTED_STATE_MOVIE_TIME
+            area_state, CommonAttributes.STATES.value, CUSTOM_STATE_MOVIE_TIME
         )
         assert_in_attribute(
-            area_state, CommonAttributes.STATES.value, EXPECTED_STATE_GAMING
+            area_state, CommonAttributes.STATES.value, CUSTOM_STATE_STATE_GAMING
         )
 
     async def test_user_defined_state_with_occupied(
@@ -167,7 +167,7 @@ class TestUserDefinedStates:
         area_state = hass.states.get(area_state_id)
         assert_in_attribute(area_state, CommonAttributes.STATES.value, AreaStates.CLEAR)
         assert_in_attribute(
-            area_state, CommonAttributes.STATES.value, EXPECTED_STATE_MOVIE_TIME
+            area_state, CommonAttributes.STATES.value, CUSTOM_STATE_MOVIE_TIME
         )
 
     async def test_slugification(self, hass, setup_user_defined_states):
@@ -180,13 +180,16 @@ class TestUserDefinedStates:
         await hass.async_block_till_done()
 
         area_state = hass.states.get(area_state_id)
-        # Should be slugified
+        # Should NOT be slugified
         assert_in_attribute(
-            area_state, CommonAttributes.STATES.value, EXPECTED_STATE_MOVIE_TIME
+            area_state,
+            CommonAttributes.STATES.value,
+            slugify_state_name(CUSTOM_STATE_MOVIE_TIME),
+            negate=True,
         )
-        # Should NOT be raw name
+        # Should be friendly name
         assert_in_attribute(
-            area_state, CommonAttributes.STATES.value, "Movie Time", negate=True
+            area_state, CommonAttributes.STATES.value, CUSTOM_STATE_MOVIE_TIME
         )
 
 

@@ -347,6 +347,12 @@ class LightGroupsFeature(FeatureHandler):
             available_states = StateOptionsBuilder.for_light_groups(available_states)
             _LOGGER.debug("Light Groups: available_states = %s", available_states)
 
+            # Build selector options with friendly names
+            state_options = StateOptionsBuilder.build_selector_options(
+                self.flow.area, available_states
+            )
+            _LOGGER.debug("Light Groups: state_options = %s", state_options)
+
             # Build selector overrides for dynamic options
             _LOGGER.debug("Light Groups: Building selector_overrides...")
             selector_overrides = {
@@ -355,7 +361,7 @@ class LightGroupsFeature(FeatureHandler):
                     multiple=True,
                 ),
                 LightGroupEntryOptions.STATES.key: self.flow.build_selector_select(
-                    options=available_states,
+                    options=state_options,
                     multiple=True,
                     translation_key=LightGroupEntryOptions.STATES.key,
                 ),

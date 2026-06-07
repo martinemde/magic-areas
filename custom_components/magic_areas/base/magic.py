@@ -32,6 +32,7 @@ from homeassistant.helpers.entity_registry import (
 from homeassistant.util import slugify
 
 from custom_components.magic_areas.const import (
+    BUILTIN_AREA_STATES,
     DOMAIN,
     INVALID_STATES,
     MAGIC_AREAS_COMPONENTS,
@@ -675,6 +676,33 @@ class MagicArea:
                 entities[slugify_state_name(state_name)] = entity_id
 
         return entities
+
+    def get_state_friendly_name(self, state_slug: str) -> str:
+        """Get friendly name for a state slug.
+
+        For built-in states, returns the slug (for translation).
+        For user-defined states, returns the friendly name from config.
+
+        Args:
+            state_slug: State slug (e.g., "occupied", "movie_time")
+
+        Returns:
+            Friendly name for display
+
+        """
+        # Check if it's a built-in state
+        if state_slug in BUILTIN_AREA_STATES:
+            return state_slug  # Return slug for translation
+
+        # Look up user-defined state
+        user_defined_states = self.config.get(UserDefinedStateOptions.STATES)
+        for state_entry in user_defined_states:
+            state_name = state_entry.get(UserDefinedStateEntryOptions.NAME.key)
+            if state_name and slugify_state_name(state_name) == state_slug:
+                return state_name  # Return friendly name
+
+        # Fallback: return slug if not found
+        return state_slug
 
     def make_device_registry_filter(self):
         """Create device register filter for this area."""

@@ -129,6 +129,8 @@ class TestLightGroupsFeature:
         magic_area.secondary_state_entities = {}
         magic_area.is_meta.return_value = False
         magic_area.get_presence_sensors.return_value = ["binary_sensor.motion_sensor"]
+        # (Since no user-defined states in tests, all states are built-in)
+        magic_area.get_state_friendly_name = Mock(side_effect=lambda slug: slug)
 
         # Create flow
         flow = Mock(spec=OptionsFlowHandler)

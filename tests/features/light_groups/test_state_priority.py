@@ -52,6 +52,10 @@ class TestStatePriority:
         """Test that sleep state activates groups configured for sleep."""
         light_group_id = setup_sleep_light_group["light_group_id"]
         sleep_sensor = setup_sleep_light_group["secondary_sensors"]["sleep"]
+        motion_sensor = setup_sleep_light_group["motion_sensor"]
+
+        # Make area occupied first
+        await trigger_occupancy(hass, motion_sensor, occupied=True)
 
         # Activate sleep state
         await trigger_secondary_state(hass, sleep_sensor, active=True)

@@ -215,7 +215,7 @@ class ConfigValidator:
         """
         try:
             validated = schema(user_input)
-            await on_success(validated)
+            await on_success(validated)  # type: ignore
             return True, None
         except vol.MultipleInvalid as validation:
             errors = {
@@ -339,6 +339,38 @@ class StateOptionsBuilder:
 
         """
         return available_states
+
+    @staticmethod
+    def build_selector_options(area: "MagicArea", state_list: list[str]) -> list:
+        """Build selector options with friendly names for user-defined states.
+
+        Returns a mixed list where:
+        - Built-in states are strings (for translation)
+        - User-defined states are dicts with value/label
+
+        Args:
+            area: MagicArea instance
+            state_list: List of state slugs to include
+
+        Returns:
+            List of options for SelectSelector (mixed format)
+
+        Example:
+            [
+                "occupied",  # Built-in - uses translation
+                "dark",      # Built-in - uses translation
+                {"value": "movie_time", "label": "Movie Time"}  # User-defined
+            ]
+
+        """
+        options = []
+
+        for state_slug in state_list:
+            options.append(
+                {"value": state_slug, "label": area.get_state_friendly_name(state_slug)}
+            )
+
+        return options
 
 
 class SelectorBuilder:
