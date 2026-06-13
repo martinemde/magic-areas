@@ -139,7 +139,11 @@ class LightGroupsFeature(FeatureHandler):
             type="form",
             step_id="select_group",
             data_schema=vol.Schema(
-                {vol.Required("group_index"): vol.In(group_options)}
+                {
+                    vol.Required("group_index"): vol.All(
+                        vol.Coerce(int), vol.In(group_options)
+                    )
+                }
             ),
         )
 
@@ -305,7 +309,9 @@ class LightGroupsFeature(FeatureHandler):
             step_id="delete_group",
             data_schema=vol.Schema(
                 {
-                    vol.Required("group_index"): vol.In(group_options),
+                    vol.Required("group_index"): vol.All(
+                        vol.Coerce(int), vol.In(group_options)
+                    ),
                     vol.Required("confirm", default=False): bool,
                 }
             ),

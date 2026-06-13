@@ -133,7 +133,11 @@ class UserDefinedStatesHandler(DomainHandler):
             type="form",
             step_id="select_state",
             data_schema=vol.Schema(
-                {vol.Required("state_index"): vol.In(state_options)}
+                {
+                    vol.Required("state_index"): vol.All(
+                        vol.Coerce(int), vol.In(state_options)
+                    )
+                }
             ),
         )
 
@@ -313,7 +317,9 @@ class UserDefinedStatesHandler(DomainHandler):
             step_id="delete_state",
             data_schema=vol.Schema(
                 {
-                    vol.Required("state_index"): vol.In(state_options),
+                    vol.Required("state_index"): vol.All(
+                        vol.Coerce(int), vol.In(state_options)
+                    ),
                     vol.Required("confirm", default=False): bool,
                 }
             ),
