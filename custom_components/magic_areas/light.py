@@ -417,7 +417,7 @@ class AreaLightGroup(MagicLightGroup):
         self.hass.services.call(
             LIGHT_DOMAIN,
             SERVICE_TURN_ON,
-            {"entity_id": self._entity_ids},
+            {"entity_id": self.entity_id},
             context=self._generate_context_id(),
         )
 
@@ -426,7 +426,7 @@ class AreaLightGroup(MagicLightGroup):
         self.hass.services.call(
             LIGHT_DOMAIN,
             SERVICE_TURN_OFF,
-            {"entity_id": self._entity_ids},
+            {"entity_id": self.entity_id},
             context=self._generate_context_id(),
         )
 
