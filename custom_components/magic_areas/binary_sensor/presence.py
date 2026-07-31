@@ -645,8 +645,8 @@ class AreaStateBinarySensor(AreaStateTrackerEntity, BinarySensorEntity):
 
         # Restore area.states from saved attributes
         last_state = await self.async_get_last_state()
-        if last_state is not None and ATTR_STATES in last_state.attributes:
-            restored_states = last_state.attributes[ATTR_STATES]
+        if last_state is not None and CommonAttributes.STATES in last_state.attributes:
+            restored_states = last_state.attributes[CommonAttributes.STATES]
             if isinstance(restored_states, list):
                 self.area.states = list(restored_states)
                 _LOGGER.info(
@@ -737,7 +737,9 @@ class MetaAreaStateBinarySensor(AreaStateBinarySensor):
 
         # Collect all states from child areas
         for area_slug in child_areas:
-            area_entity_id: str = f"{BINARY_SENSOR_DOMAIN}.magic_areas_presence_tracking_{area_slug}_area_state"
+            area_entity_id: str = (
+                f"{BINARY_SENSOR_DOMAIN}.magic_areas_presence_tracking_{area_slug}_area_state"
+            )
             area_state = self.hass.states.get(area_entity_id)
 
             if not area_state:
