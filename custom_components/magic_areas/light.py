@@ -494,6 +494,15 @@ class AreaLightGroup(MagicLightGroup):
             )
             return False
 
+        # Area just got occupied
+        if AreaStates.OCCUPIED in new_states and AreaStates.CLEAR in lost_states:
+            _LOGGER.debug(
+                "%s (%s): Area just got occupied, blocking turn-off",
+                self.area.name,
+                self.name,
+            )
+            return False
+
         # AREA_CLEAR
         if LightGroupTurnOffWhen.AREA_CLEAR in self.turn_off_when:
             if AreaStates.CLEAR in new_states and AreaStates.OCCUPIED in lost_states:
