@@ -6,7 +6,6 @@ Small helper functions for area and Magic Area objects.
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_ID, ATTR_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.area_registry import (
     AreaEntry,
@@ -19,8 +18,7 @@ from homeassistant.helpers.floor_registry import (
 
 from custom_components.magic_areas.base.magic import BasicArea, MagicArea, MagicMetaArea
 from custom_components.magic_areas.const import (
-    DATA_AREA_OBJECT,
-    MODULE_DATA,
+    CONF_AREA_ID,
     MetaAreaIcons,
     MetaAreaType,
 )
@@ -84,8 +82,8 @@ def get_magic_area_for_config_entry(
 ) -> MagicArea | None:
     """Return magic area object for given config entry."""
 
-    area_id = config_entry.data[ATTR_ID]
-    area_name = config_entry.data[ATTR_NAME]
+    area_id = config_entry.data[CONF_AREA_ID]
+    area_name = config_entry.title
 
     magic_area: MagicArea | None = None
 
@@ -137,7 +135,7 @@ def get_area_from_config_entry(
 ) -> MagicArea | MagicMetaArea | None:
     """Return area object for given config entry."""
 
-    if config_entry.entry_id not in hass.data[MODULE_DATA]:
+    if not hasattr(config_entry, "runtime_data") or config_entry.runtime_data is None:
         return None
 
-    return hass.data[MODULE_DATA][config_entry.entry_id][DATA_AREA_OBJECT]
+    return config_entry.runtime_data

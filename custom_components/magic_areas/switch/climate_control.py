@@ -12,20 +12,11 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from custom_components.magic_areas.base.magic import MagicArea
 from custom_components.magic_areas.const import (
-    CONF_CLIMATE_CONTROL_ENTITY_ID,
-    CONF_CLIMATE_CONTROL_PRESET_CLEAR,
-    CONF_CLIMATE_CONTROL_PRESET_EXTENDED,
-    CONF_CLIMATE_CONTROL_PRESET_OCCUPIED,
-    CONF_CLIMATE_CONTROL_PRESET_SLEEP,
-    DEFAULT_CLIMATE_CONTROL_PRESET_CLEAR,
-    DEFAULT_CLIMATE_CONTROL_PRESET_EXTENDED,
-    DEFAULT_CLIMATE_CONTROL_PRESET_OCCUPIED,
-    DEFAULT_CLIMATE_CONTROL_PRESET_SLEEP,
     AreaStates,
     MagicAreasEvents,
     MagicAreasFeatureInfoClimateControl,
-    MagicAreasFeatures,
 )
+from custom_components.magic_areas.const.climate_control import ClimateControlOptions
 from custom_components.magic_areas.switch.base import SwitchBase
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,35 +36,19 @@ class ClimateControlSwitch(SwitchBase):
 
         SwitchBase.__init__(self, area)
 
-        self.climate_entity_id = self.area.feature_config(
-            MagicAreasFeatures.CLIMATE_CONTROL
-        ).get(CONF_CLIMATE_CONTROL_ENTITY_ID, None)
+        self.climate_entity_id = self.area.config.get(ClimateControlOptions.ENTITY_ID)
 
         if not self.climate_entity_id:
             raise ValueError("Climate entity not set")
 
         self.preset_map = {
-            AreaStates.CLEAR: self.area.feature_config(
-                MagicAreasFeatures.CLIMATE_CONTROL
-            ).get(
-                CONF_CLIMATE_CONTROL_PRESET_CLEAR, DEFAULT_CLIMATE_CONTROL_PRESET_CLEAR
+            AreaStates.CLEAR: self.area.config.get(ClimateControlOptions.PRESET_CLEAR),
+            AreaStates.OCCUPIED: self.area.config.get(
+                ClimateControlOptions.PRESET_OCCUPIED
             ),
-            AreaStates.OCCUPIED: self.area.feature_config(
-                MagicAreasFeatures.CLIMATE_CONTROL
-            ).get(
-                CONF_CLIMATE_CONTROL_PRESET_OCCUPIED,
-                DEFAULT_CLIMATE_CONTROL_PRESET_OCCUPIED,
-            ),
-            AreaStates.SLEEP: self.area.feature_config(
-                MagicAreasFeatures.CLIMATE_CONTROL
-            ).get(
-                CONF_CLIMATE_CONTROL_PRESET_SLEEP, DEFAULT_CLIMATE_CONTROL_PRESET_SLEEP
-            ),
-            AreaStates.EXTENDED: self.area.feature_config(
-                MagicAreasFeatures.CLIMATE_CONTROL
-            ).get(
-                CONF_CLIMATE_CONTROL_PRESET_EXTENDED,
-                DEFAULT_CLIMATE_CONTROL_PRESET_EXTENDED,
+            AreaStates.SLEEP: self.area.config.get(ClimateControlOptions.PRESET_SLEEP),
+            AreaStates.EXTENDED: self.area.config.get(
+                ClimateControlOptions.PRESET_EXTENDED
             ),
         }
 
@@ -83,7 +58,9 @@ class ClimateControlSwitch(SwitchBase):
 
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, MagicAreasEvents.AREA_STATE_CHANGED, self.area_state_changed
+                self.hass,
+                f"{MagicAreasEvents.AREA_STATE_CHANGED}_{self.area.id}",
+                self.area_state_changed,
             )
         )
 
@@ -94,13 +71,10 @@ class ClimateControlSwitch(SwitchBase):
             self.logger.debug("%s: Control disabled. Skipping.", self.name)
             return
 
-        if area_id != self.area.id:
-            _LOGGER.debug(
-                "%s: Area state change event not for us. Skipping. (event: %s/self: %s)",
-                self.name,
-                area_id,
-                self.area.id,
-            )
+        new_states, lost_states = states_tuple
+
+        if new_states == lost_states:
+            self.logger.debug("%s: No state change. Skipping.", self.name)
             return
 
         priority_states: list[str] = [
@@ -110,14 +84,14 @@ class ClimateControlSwitch(SwitchBase):
         ]
 
         # Handle area clear because the other states doesn't matter
-        if self.area.has_state(AreaStates.CLEAR):
+        if AreaStates.CLEAR in new_states:
             if self.preset_map[AreaStates.CLEAR]:
                 await self.apply_preset(AreaStates.CLEAR)
             return
 
         # Handle each state top priority to last, returning early
         for p_state in priority_states:
-            if self.area.has_state(p_state) and self.preset_map[p_state]:
+            if p_state in new_states and self.preset_map[p_state]:
                 return await self.apply_preset(p_state)
 
     async def apply_preset(self, state_name: str):

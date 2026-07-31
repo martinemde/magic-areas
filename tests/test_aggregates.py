@@ -26,12 +26,8 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 
-from custom_components.magic_areas.const import (
-    CONF_AGGREGATES_MIN_ENTITIES,
-    CONF_ENABLED_FEATURES,
-    CONF_FEATURE_AGGREGATION,
-    DOMAIN,
-)
+from custom_components.magic_areas.const import DOMAIN
+from custom_components.magic_areas.const.aggregates import AggregateOptions
 
 from tests.const import DEFAULT_MOCK_AREA
 from tests.helpers import (
@@ -54,11 +50,17 @@ def mock_config_entry_aggregates() -> MockConfigEntry:
     """Fixture for mock configuration entry."""
     data = get_basic_config_entry_data(DEFAULT_MOCK_AREA)
     data.update(
-        {
-            CONF_ENABLED_FEATURES: {
-                CONF_FEATURE_AGGREGATION: {CONF_AGGREGATES_MIN_ENTITIES: 1}
+        AggregateOptions.to_config(
+            {
+                AggregateOptions.MIN_ENTITIES.key: 1,
+                AggregateOptions.BINARY_SENSOR_DEVICE_CLASSES.key: [
+                    cls.value for cls in BinarySensorDeviceClass
+                ],
+                AggregateOptions.SENSOR_DEVICE_CLASSES.key: [
+                    cls.value for cls in SensorDeviceClass
+                ],
             }
-        }
+        )
     )
     return MockConfigEntry(domain=DOMAIN, data=data)
 

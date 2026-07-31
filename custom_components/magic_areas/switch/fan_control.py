@@ -17,17 +17,11 @@ from homeassistant.helpers.event import async_track_state_change_event
 
 from custom_components.magic_areas.base.magic import MagicArea
 from custom_components.magic_areas.const import (
-    CONF_FAN_GROUPS_REQUIRED_STATE,
-    CONF_FAN_GROUPS_SETPOINT,
-    CONF_FAN_GROUPS_TRACKED_DEVICE_CLASS,
-    DEFAULT_FAN_GROUPS_REQUIRED_STATE,
-    DEFAULT_FAN_GROUPS_SETPOINT,
-    DEFAULT_FAN_GROUPS_TRACKED_DEVICE_CLASS,
     AreaStates,
     MagicAreasEvents,
     MagicAreasFeatureInfoFanGroups,
-    MagicAreasFeatures,
 )
+from custom_components.magic_areas.const.fan_groups import FanGroupOptions
 from custom_components.magic_areas.switch.base import SwitchBase
 
 _LOGGER = logging.getLogger(__name__)
@@ -47,19 +41,12 @@ class FanControlSwitch(SwitchBase):
 
         SwitchBase.__init__(self, area)
 
-        tracked_device_class = self.area.feature_config(
-            MagicAreasFeatures.FAN_GROUPS
-        ).get(
-            CONF_FAN_GROUPS_TRACKED_DEVICE_CLASS,
-            DEFAULT_FAN_GROUPS_TRACKED_DEVICE_CLASS,
+        tracked_device_class = self.area.config.get(
+            FanGroupOptions.TRACKED_DEVICE_CLASS
         )
         self.tracked_entity_id = f"{SENSOR_DOMAIN}.magic_areas_aggregates_{self.area.slug}_aggregate_{tracked_device_class}"
 
-        self.setpoint = float(
-            self.area.feature_config(MagicAreasFeatures.FAN_GROUPS).get(
-                CONF_FAN_GROUPS_SETPOINT, DEFAULT_FAN_GROUPS_SETPOINT
-            )
-        )
+        self.setpoint = float(self.area.config.get(FanGroupOptions.SETPOINT))
 
     async def async_added_to_hass(self) -> None:
         """Call when entity about to be added to hass."""
@@ -67,7 +54,9 @@ class FanControlSwitch(SwitchBase):
 
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, MagicAreasEvents.AREA_STATE_CHANGED, self.area_state_changed
+                self.hass,
+                f"{MagicAreasEvents.AREA_STATE_CHANGED}_{self.area.id}",
+                self.area_state_changed,
             )
         )
         self.async_on_remove(
@@ -87,15 +76,6 @@ class FanControlSwitch(SwitchBase):
 
     async def area_state_changed(self, area_id, states_tuple):
         """Handle area state change event."""
-
-        if area_id != self.area.id:
-            _LOGGER.debug(
-                "%s: Area state change event not for us. Skipping. (event: %s/self: %s)",
-                self.name,
-                area_id,
-                self.area.id,
-            )
-            return
 
         # pylint: disable-next=unused-variable
         new_states, lost_states = states_tuple
@@ -119,9 +99,7 @@ class FanControlSwitch(SwitchBase):
             )
             return
 
-        required_state = self.area.feature_config(MagicAreasFeatures.FAN_GROUPS).get(
-            CONF_FAN_GROUPS_REQUIRED_STATE, DEFAULT_FAN_GROUPS_REQUIRED_STATE
-        )
+        required_state = self.area.config.get(FanGroupOptions.REQUIRED_STATE)
 
         if required_state not in states:
             _LOGGER.debug(

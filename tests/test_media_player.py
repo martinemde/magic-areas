@@ -25,14 +25,9 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 
-from custom_components.magic_areas.const import (
-    ATTR_STATES,
-    CONF_ENABLED_FEATURES,
-    CONF_FEATURE_AREA_AWARE_MEDIA_PLAYER,
-    CONF_NOTIFICATION_DEVICES,
-    CONF_NOTIFY_STATES,
-    DOMAIN,
-    AreaStates,
+from custom_components.magic_areas.const import DOMAIN, AreaStates, CommonAttributes
+from custom_components.magic_areas.const.area_aware_media_player import (
+    AreaAwareMediaPlayerOptions,
 )
 
 from tests.const import DEFAULT_MOCK_AREA, MockAreaIds
@@ -64,14 +59,16 @@ def mock_config_entry_area_aware_media_player_area() -> MockConfigEntry:
     """Fixture for mock configuration entry."""
     data = get_basic_config_entry_data(DEFAULT_MOCK_AREA)
     data.update(
-        {
-            CONF_ENABLED_FEATURES: {
-                CONF_FEATURE_AREA_AWARE_MEDIA_PLAYER: {
-                    CONF_NOTIFICATION_DEVICES: ["media_player.media_player_1"],
-                    CONF_NOTIFY_STATES: [AreaStates.OCCUPIED],
-                }
+        AreaAwareMediaPlayerOptions.to_config(
+            {
+                AreaAwareMediaPlayerOptions.NOTIFICATION_DEVICES.key: [
+                    "media_player.media_player_1"
+                ],
+                AreaAwareMediaPlayerOptions.NOTIFICATION_STATES.key: [
+                    AreaStates.OCCUPIED
+                ],
             }
-        }
+        )
     )
     return MockConfigEntry(domain=DOMAIN, data=data)
 
@@ -187,7 +184,9 @@ async def test_area_aware_media_player(
 
     assert_state(motion_sensor, STATE_ON)
     assert_state(area_binary_sensor, STATE_ON)
-    assert_in_attribute(area_binary_sensor, ATTR_STATES, AreaStates.OCCUPIED)
+    assert_in_attribute(
+        area_binary_sensor, CommonAttributes.STATES.value, AreaStates.OCCUPIED
+    )
 
     # Send play to AAMP
     service_data = {

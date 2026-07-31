@@ -1,17 +1,20 @@
 """Classes for Magic Areas and Meta Areas."""
 
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 import logging
-import random
 
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
+from homeassistant.components.sun.const import STATE_BELOW_HORIZON
 from homeassistant.components.switch.const import DOMAIN as SWITCH_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_ENTITY_ID,
     EVENT_HOMEASSISTANT_STARTED,
+    STATE_OFF,
     STATE_ON,
     EntityCategory,
 )
@@ -26,38 +29,34 @@ from homeassistant.helpers.entity_registry import (
     RegistryEntry,
     async_get as entityreg_async_get,
 )
-from homeassistant.util import Throttle, slugify
+from homeassistant.util import slugify
 
 from custom_components.magic_areas.const import (
-    AREA_STATE_OCCUPIED,
-    AREA_TYPE_EXTERIOR,
-    AREA_TYPE_INTERIOR,
-    AREA_TYPE_META,
-    CONF_ENABLED_FEATURES,
-    CONF_EXCLUDE_ENTITIES,
-    CONF_FEATURE_AGGREGATION,
-    CONF_FEATURE_BLE_TRACKERS,
-    CONF_FEATURE_PRESENCE_HOLD,
-    CONF_FEATURE_WASP_IN_A_BOX,
-    CONF_IGNORE_DIAGNOSTIC_ENTITIES,
-    CONF_INCLUDE_ENTITIES,
-    CONF_PRESENCE_DEVICE_PLATFORMS,
-    CONF_PRESENCE_SENSOR_DEVICE_CLASS,
-    CONF_TYPE,
-    CONFIGURABLE_AREA_STATE_MAP,
-    DATA_AREA_OBJECT,
-    DEFAULT_IGNORE_DIAGNOSTIC_ENTITIES,
-    DEFAULT_PRESENCE_DEVICE_PLATFORMS,
+    BUILTIN_AREA_STATES,
+    DOMAIN,
+    INVALID_STATES,
     MAGIC_AREAS_COMPONENTS,
     MAGIC_AREAS_COMPONENTS_GLOBAL,
     MAGIC_AREAS_COMPONENTS_META,
     MAGIC_DEVICE_ID_PREFIX,
     MAGICAREAS_UNIQUEID_PREFIX,
     META_AREA_GLOBAL,
-    MODULE_DATA,
+    AreaConfigOptions,
+    AreaStates,
+    AreaType,
+    ConfigDomains,
+    ConfigHelper,
+    Features,
     MagicAreasEvents,
     MetaAreaAutoReloadSettings,
     MetaAreaType,
+    PresenceTrackingOptions,
+)
+from custom_components.magic_areas.const.secondary_states import SecondaryStateOptions
+from custom_components.magic_areas.const.user_defined_states import (
+    UserDefinedStateEntryOptions,
+    UserDefinedStateOptions,
+    slugify_state_name,
 )
 
 # Classes
@@ -103,13 +102,12 @@ class MagicArea:
 
         # Timestamp for initialization / reload tests
         self.timestamp: datetime = datetime.now(UTC)
-        self.reloading: bool = False
 
         # Merged options
         area_config = dict(config.data)
         if config.options:
             area_config.update(config.options)
-        self.config = area_config
+        self.config = ConfigHelper(area_config)
 
         self.entities: dict[str, list[dict[str, str]]] = {}
         self.magic_entities: dict[str, list[dict[str, str]]] = {}
@@ -120,10 +118,61 @@ class MagicArea:
 
         self.loaded_platforms: list[str] = []
 
+        # Light sensor resolution (set during finalize_init)
+        self.area_light_sensor: str | None = None
+
         self.logger.debug("%s: Primed for initialization.", self.name)
+
+    def _handle_exterior_loaded(
+        self, area_type: str, floor_id: int | None, area_id: str
+    ) -> None:
+        """Re-resolve light sensor when exterior meta-area becomes available."""
+        # Only care about exterior meta-area
+        if area_type != AreaType.META:
+            return
+
+        # Only care about the exterior meta-area specifically
+        if area_id != MetaAreaType.EXTERIOR:  # Check if it's the exterior one
+            return
+
+        # Only re-resolve if currently using sun.sun (the fallback)
+        if self.area_light_sensor != "sun.sun":
+            return
+
+        # Re-resolve to see if we can now use exterior sensors
+        new_light_sensor = self.resolve_light_entity()
+
+        if new_light_sensor != self.area_light_sensor:
+            self.logger.info(
+                "%s: Updating light sensor from %s to %s after exterior area loaded",
+                self.name,
+                self.area_light_sensor,
+                new_light_sensor,
+            )
+            self.area_light_sensor = new_light_sensor
+
+            # Notify presence sensor to update its light sensor listener
+            dispatcher_send(
+                self.hass,
+                f"{MagicAreasEvents.AREA_LIGHT_SENSOR_CHANGED}_{self.id}",
+                new_light_sensor,
+            )
 
     def finalize_init(self):
         """Finalize initialization of the area."""
+        # Resolve light entity before marking as initialized
+
+        self.area_light_sensor = self.resolve_light_entity()
+
+        # Listen for exterior area loading (if we're using sun.sun fallback)
+        if not self.is_meta() and self.area_light_sensor == "sun.sun":
+            disconnect = async_dispatcher_connect(
+                self.hass,
+                MagicAreasEvents.AREA_LOADED,
+                self._handle_exterior_loaded,
+            )
+            self.hass_config.async_on_unload(disconnect)
+
         self.initialized = True
         self.logger.debug(
             "%s (%s) initialized.", self.name, "Meta-Area" if self.is_meta() else "Area"
@@ -151,55 +200,23 @@ class MagicArea:
 
     def is_occupied(self) -> bool:
         """Return if area is occupied."""
-        return self.has_state(AREA_STATE_OCCUPIED)
+        return self.has_state(AreaStates.OCCUPIED)
 
     def has_state(self, state) -> bool:
         """Check if area has a given state."""
         return state in self.states
 
-    def has_configured_state(self, state) -> bool:
-        """Check if area supports a given state."""
-        state_opts = CONFIGURABLE_AREA_STATE_MAP.get(state, None)
-
-        if not state_opts:
-            return False
-
-        state_entity, state_value = state_opts
-
-        if state_entity and state_value:
-            return True
-
-        return False
-
     def has_feature(self, feature) -> bool:
         """Check if area has a given feature."""
-        enabled_features = self.config.get(CONF_ENABLED_FEATURES)
+        # Get features config from the new structure
+        features_config = self.config.get_raw(ConfigDomains.FEATURES, {})
 
-        # Deal with legacy
-        if isinstance(enabled_features, list):
-            return feature in enabled_features
-
-        # Handle everything else
-        if not isinstance(enabled_features, dict):
-            self.logger.warning(
-                "%s: Invalid configuration for %s", self.name, CONF_ENABLED_FEATURES
-            )
+        if not isinstance(features_config, dict):
+            self.logger.warning("%s: Invalid configuration for features", self.name)
             return False
 
-        return feature in enabled_features
-
-    def feature_config(self, feature) -> dict:
-        """Return configuration for a given feature."""
-        if not self.has_feature(feature):
-            self.logger.debug("%s: Feature '%s' not enabled.", self.name, feature)
-            return {}
-
-        options = self.config.get(CONF_ENABLED_FEATURES, {})
-
-        if not options:
-            self.logger.debug("%s: No feature config found for %s", self.name, feature)
-
-        return options.get(feature, {})
+        # Feature is enabled if it exists in the config (presence = enabled)
+        return feature in features_config
 
     def available_platforms(self):
         """Return available platforms to area type."""
@@ -219,19 +236,19 @@ class MagicArea:
     @property
     def area_type(self):
         """Return the area type."""
-        return self.config.get(CONF_TYPE)
+        return self.config.get(AreaConfigOptions.TYPE)
 
     def is_meta(self) -> bool:
         """Return if area is Meta or not."""
-        return self.area_type == AREA_TYPE_META
+        return self.area_type == AreaType.META
 
     def is_interior(self):
         """Return if area type is interior or not."""
-        return self.area_type == AREA_TYPE_INTERIOR
+        return self.area_type == AreaType.INTERIOR
 
     def is_exterior(self):
         """Return if area type is exterior or not."""
-        return self.area_type == AREA_TYPE_EXTERIOR
+        return self.area_type == AreaType.EXTERIOR
 
     def _is_magic_area_entity(self, entity: RegistryEntry) -> bool:
         """Return if entity belongs to this integration instance."""
@@ -249,13 +266,11 @@ class MagicArea:
             return True
 
         # Is in the exclusion list?
-        if entity.entity_id in self.config.get(CONF_EXCLUDE_ENTITIES, []):
+        if entity.entity_id in self.config.get(AreaConfigOptions.EXCLUDE_ENTITIES):
             return True
 
         # Are we excluding DIAGNOSTIC and CONFIG?
-        if self.config.get(
-            CONF_IGNORE_DIAGNOSTIC_ENTITIES, DEFAULT_IGNORE_DIAGNOSTIC_ENTITIES
-        ):
+        if self.config.get(AreaConfigOptions.IGNORE_DIAGNOSTIC_ENTITIES):
             if entity.entity_category in [
                 EntityCategory.CONFIG,
                 EntityCategory.DIAGNOSTIC,
@@ -268,7 +283,7 @@ class MagicArea:
         """Load entities into entity list."""
 
         entity_list: list[RegistryEntry] = []
-        include_entities = self.config.get(CONF_INCLUDE_ENTITIES)
+        include_entities = self.config.get(AreaConfigOptions.INCLUDE_ENTITIES)
 
         entity_registry = entityreg_async_get(self.hass)
         device_registry = devicereg_async_get(self.hass)
@@ -396,7 +411,7 @@ class MagicArea:
         sensors: list[str] = []
 
         valid_presence_platforms = self.config.get(
-            CONF_PRESENCE_DEVICE_PLATFORMS, DEFAULT_PRESENCE_DEVICE_PLATFORMS
+            PresenceTrackingOptions.DEVICE_PLATFORMS
         )
 
         for component, entities in self.entities.items():
@@ -412,27 +427,27 @@ class MagicArea:
                         continue
 
                     if entity[ATTR_DEVICE_CLASS] not in self.config.get(
-                        CONF_PRESENCE_SENSOR_DEVICE_CLASS, []
+                        PresenceTrackingOptions.SENSOR_DEVICE_CLASS
                     ):
                         continue
 
                 sensors.append(entity[ATTR_ENTITY_ID])
 
         # Append presence_hold switch as a presence_sensor
-        if self.has_feature(CONF_FEATURE_PRESENCE_HOLD):
+        if self.has_feature(Features.PRESENCE_HOLD):
             presence_hold_switch_id = (
                 f"{SWITCH_DOMAIN}.magic_areas_presence_hold_{self.slug}"
             )
             sensors.append(presence_hold_switch_id)
 
         # Append BLE Tracker monitor as a presence_sensor
-        if self.has_feature(CONF_FEATURE_BLE_TRACKERS):
+        if self.has_feature(Features.BLE_TRACKERS):
             ble_tracker_sensor_id = f"{BINARY_SENSOR_DOMAIN}.magic_areas_ble_trackers_{self.slug}_ble_tracker_monitor"
             sensors.append(ble_tracker_sensor_id)
 
         # Append Wasp In The Box sensor as presence monitor
-        if self.has_feature(CONF_FEATURE_AGGREGATION) and self.has_feature(
-            CONF_FEATURE_WASP_IN_A_BOX
+        if self.has_feature(Features.AGGREGATION) and self.has_feature(
+            Features.WASP_IN_A_BOX
         ):
             wasp_in_the_box_sensor_id = (
                 f"{BINARY_SENSOR_DOMAIN}.magic_areas_wasp_in_a_box_{self.slug}"
@@ -467,9 +482,9 @@ class MagicArea:
             if entity_part.startswith(MAGICAREAS_UNIQUEID_PREFIX):
                 return False
 
-            # Ignore if too soon
+            # Ignore if too soon after area initialization
             if datetime.now(UTC) - self.timestamp < timedelta(
-                seconds=MetaAreaAutoReloadSettings.THROTTLE
+                seconds=MetaAreaAutoReloadSettings.DELAY
             ):
                 return False
 
@@ -501,6 +516,194 @@ class MagicArea:
 
         return _entity_registry_filter
 
+    def resolve_light_entity(self) -> str | None:
+        """Resolve which entity to use for darkness detection.
+
+        Resolution order:
+        1. Area's threshold sensor (if conditions warrant creation)
+        2. Area's light aggregate (if conditions warrant creation)
+        3. Windowless check (return None if true)
+        4. Exterior meta-area threshold sensor (if available)
+        5. Exterior meta-area light aggregate (if available)
+        6. sun.sun fallback
+
+        Returns:
+            Entity ID to monitor (binary sensor or sun.sun), or None for windowless
+
+        """
+        # Import here to avoid circular dependency
+        from custom_components.magic_areas.helpers.aggregates import (  # pylint: disable=import-outside-toplevel
+            should_create_light_aggregate,
+            should_create_threshold_sensor,
+        )
+
+        # 1. Check if threshold sensor should be created for this area
+        if should_create_threshold_sensor(self):
+            threshold_entity = f"{BINARY_SENSOR_DOMAIN}.magic_areas_threshold_{self.slug}_threshold_light"
+            self.logger.debug(
+                "%s: Will use threshold sensor for dark detection: %s",
+                self.name,
+                threshold_entity,
+            )
+            return threshold_entity
+
+        # 2. Check if light aggregate should be created for this area
+        if should_create_light_aggregate(self):
+            light_aggregate = f"{BINARY_SENSOR_DOMAIN}.magic_areas_aggregates_{self.slug}_aggregate_light"
+            self.logger.debug(
+                "%s: Will use light aggregate for dark detection: %s",
+                self.name,
+                light_aggregate,
+            )
+            return light_aggregate
+
+        # 3. Check windowless flag
+        if self.config.get(AreaConfigOptions.WINDOWLESS):
+            self.logger.debug("%s: Windowless area - always dark", self.name)
+            return None  # Always dark
+
+        # 4. Check exterior meta-area
+        exterior_area = self._get_exterior_meta_area()
+        if exterior_area:
+            # Try exterior threshold sensor
+            if should_create_threshold_sensor(exterior_area):
+                ext_threshold = f"{BINARY_SENSOR_DOMAIN}.magic_areas_threshold_exterior_threshold_light"
+                self.logger.debug(
+                    "%s: Will use exterior threshold sensor for dark detection: %s",
+                    self.name,
+                    ext_threshold,
+                )
+                return ext_threshold
+
+            # Fall back to exterior light aggregate
+            if should_create_light_aggregate(exterior_area):
+                ext_light_aggregate = f"{BINARY_SENSOR_DOMAIN}.magic_areas_aggregates_exterior_aggregate_light"
+                self.logger.debug(
+                    "%s: Will use exterior light aggregate for dark detection: %s",
+                    self.name,
+                    ext_light_aggregate,
+                )
+                return ext_light_aggregate
+
+        # 6. Final fallback: sun.sun (if available)
+        sun_entity = self.hass.states.get("sun.sun")
+        if sun_entity:
+            self.logger.debug("%s: Using sun.sun for dark detection", self.name)
+            return "sun.sun"
+
+        # No light sensor available - will always be dark
+        self.logger.debug(
+            "%s: No light sensor available - will always be dark", self.name
+        )
+        return None
+
+    def _iter_magic_areas(self):
+        """Yield MagicArea instances for all loaded config entries."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if hasattr(entry, "runtime_data") and entry.runtime_data is not None:
+                yield entry.runtime_data
+
+    def _get_exterior_meta_area(self) -> "MagicArea | None":
+        """Get the exterior meta-area if it exists."""
+        for area in self._iter_magic_areas():
+            if area.id == MetaAreaType.EXTERIOR:
+                return area
+        return None
+
+    def is_area_dark(self) -> bool:
+        """Check if area is currently dark based on resolved light sensor.
+
+        Returns:
+            True if area is dark, False if bright
+
+        """
+        # Special case: windowless = no light entity = always dark
+        if not hasattr(self, "area_light_sensor") or self.area_light_sensor is None:
+            return True
+
+        # Get entity state
+        entity = self.hass.states.get(self.area_light_sensor)
+        if not entity or entity.state in INVALID_STATES:
+            self.logger.debug(
+                "%s: Light sensor '%s' unavailable, assuming dark",
+                self.name,
+                self.area_light_sensor,
+            )
+            return True  # Assume dark if unavailable
+
+        # Check state (handles both binary sensors OFF and sun.sun below_horizon)
+        is_dark = entity.state.lower() in [STATE_OFF, STATE_BELOW_HORIZON]
+
+        self.logger.debug(
+            "%s: Light sensor '%s' state: %s -> dark=%s",
+            self.name,
+            self.area_light_sensor,
+            entity.state,
+            is_dark,
+        )
+
+        return is_dark
+
+    @cached_property
+    def secondary_state_entities(self) -> dict[str, str]:
+        """Get map of state_name -> entity_id for secondary states.
+
+        Returns map of configurable secondary states (sleep + user-defined):
+            {
+                "sleep": "binary_sensor.sleep_mode",
+                "movie": "input_boolean.movie_mode",
+                "gaming": "switch.gaming_mode",
+            }
+
+        Cached for the lifetime of this MagicArea instance.
+        Automatically cleared on config reload (new instance created).
+
+        """
+
+        entities = {}
+
+        # Add sleep state if configured
+        sleep_entity = self.config.get(SecondaryStateOptions.SLEEP_ENTITY)
+        if sleep_entity:
+            entities["sleep"] = sleep_entity
+
+        # Add user-defined states
+        user_defined_states = self.config.get(UserDefinedStateOptions.STATES)
+        for state_entry in user_defined_states:
+            state_name = state_entry.get(UserDefinedStateEntryOptions.NAME.key)
+            entity_id = state_entry.get(UserDefinedStateEntryOptions.ENTITY.key)
+            if state_name and entity_id:
+                entities[slugify_state_name(state_name)] = entity_id
+
+        return entities
+
+    def get_state_friendly_name(self, state_slug: str) -> str:
+        """Get friendly name for a state slug.
+
+        For built-in states, returns the slug (for translation).
+        For user-defined states, returns the friendly name from config.
+
+        Args:
+            state_slug: State slug (e.g., "occupied", "movie_time")
+
+        Returns:
+            Friendly name for display
+
+        """
+        # Check if it's a built-in state
+        if state_slug in BUILTIN_AREA_STATES:
+            return state_slug  # Return slug for translation
+
+        # Look up user-defined state
+        user_defined_states = self.config.get(UserDefinedStateOptions.STATES)
+        for state_entry in user_defined_states:
+            state_name = state_entry.get(UserDefinedStateEntryOptions.NAME.key)
+            if state_name and slugify_state_name(state_name) == state_slug:
+                return state_name  # Return friendly name
+
+        # Fallback: return slug if not found
+        return state_slug
+
     def make_device_registry_filter(self):
         """Create device register filter for this area."""
 
@@ -512,9 +715,9 @@ class MagicArea:
             if event_data["device_id"].startswith(MAGIC_DEVICE_ID_PREFIX):
                 return False
 
-            # Ignore if too soon
+            # Ignore if too soon after area initialization
             if datetime.now(UTC) - self.timestamp < timedelta(
-                seconds=MetaAreaAutoReloadSettings.THROTTLE
+                seconds=MetaAreaAutoReloadSettings.DELAY
             ):
                 return False
 
@@ -557,6 +760,8 @@ class MagicMetaArea(MagicArea):
         """Initialize the meta magic area with all the stuff."""
         super().__init__(hass, area, config)
         self.child_areas: list[str] = self.get_child_areas()
+        # Pending debounced reload task
+        self._reload_task: asyncio.Task | None = None
 
     def get_presence_sensors(self) -> list[str]:
         """Return list of entities used for presence tracking."""
@@ -597,12 +802,9 @@ class MagicMetaArea(MagicArea):
 
     def get_child_areas(self):
         """Return areas that a Meta area is watching."""
-        data = self.hass.data[MODULE_DATA]
         areas: list[str] = []
 
-        for area_info in data.values():
-            area: MagicArea = area_info[DATA_AREA_OBJECT]
-
+        for area in self._iter_magic_areas():
             if area.is_meta():
                 continue
 
@@ -612,7 +814,7 @@ class MagicMetaArea(MagicArea):
             else:
                 if (
                     self.id == MetaAreaType.GLOBAL
-                    or area.config.get(CONF_TYPE) == self.id
+                    or area.config.get(AreaConfigOptions.TYPE) == self.id
                 ):
                     areas.append(area.slug)
 
@@ -636,10 +838,7 @@ class MagicMetaArea(MagicArea):
         entity_registry = entityreg_async_get(self.hass)
         entity_list: list[RegistryEntry] = []
 
-        data = self.hass.data[MODULE_DATA]
-        for area_info in data.values():
-            area: MagicArea = area_info[DATA_AREA_OBJECT]
-
+        for area in self._iter_magic_areas():
             if area.slug not in self.child_areas:
                 continue
 
@@ -658,7 +857,7 @@ class MagicMetaArea(MagicArea):
 
                     # Skip excluded entities
                     if entity[ATTR_ENTITY_ID] in self.config.get(
-                        CONF_EXCLUDE_ENTITIES, []
+                        AreaConfigOptions.EXCLUDE_ENTITIES
                     ):
                         continue
 
@@ -680,17 +879,39 @@ class MagicMetaArea(MagicArea):
 
     def finalize_init(self) -> None:
         """Finalize Meta-Area initialization."""
-
-        async_dispatcher_connect(
+        disconnect: Callable = async_dispatcher_connect(
             self.hass, MagicAreasEvents.AREA_LOADED, self._handle_loaded_area
         )
+        # Automatically clean up the dispatcher listener and any pending reload
+        # task when this config entry is unloaded, preventing orphaned listeners
+        # and instances across meta-area reloads.
+        self.hass_config.async_on_unload(disconnect)
+        self.hass_config.async_on_unload(self._cancel_reload_task)
 
-    @callback
+        super().finalize_init()
+
+    def _cancel_reload_task(self) -> None:
+        """Cancel any pending debounced reload task."""
+        if self._reload_task and not self._reload_task.done():
+            self._reload_task.cancel()
+        self._reload_task = None
+
+    def _should_reload_for(self, area_type: str, area_id: str) -> bool:
+        """Return True if this meta-area should reload for the given signal."""
+
+        # Don't reload in response to our own AREA_LOADED event
+        if area_id == self.id:
+            return False
+
+        if self.slug == MetaAreaType.GLOBAL:
+            return True
+
+        return area_type == self.slug or area_id in self.child_areas
+
     async def _handle_loaded_area(
         self, area_type: str, floor_id: int | None, area_id: str
     ) -> None:
-        """Handle area loaded signals."""
-
+        """Handle area loaded signals with debouncing."""
         self.logger.debug(
             "%s: Received area loaded signal (type=%s, floor_id=%s, area_id=%s)",
             self.name,
@@ -699,51 +920,41 @@ class MagicMetaArea(MagicArea):
             area_id,
         )
 
-        # Don't act while hass is not running
         if not self.hass.is_running:
             return
 
-        # Ignore if already handling it
-        if self.reloading:
+        if not self._should_reload_for(area_type, area_id):
             return
 
-        # Handle Global
-        if self.slug == MetaAreaType.GLOBAL:
-            return await self.reload()
-
-        # Handle all non-Global meta-areas including floors
-        self.logger.info(
-            "SS %s, AT %s, AI %s, CA: %s",
-            self.slug,
-            area_type,
-            area_id,
-            str(self.child_areas),
+        # Debounce: cancel any pending reload and reschedule.
+        # This ensures that a burst of AREA_LOADED signals (e.g., at startup
+        # or when multiple areas reload at once) collapses into a single reload
+        # that fires after the last signal settles.
+        self._cancel_reload_task()
+        self._reload_task = self.hass.async_create_task(
+            self._delayed_reload(),
+            name=f"magic_areas_meta_reload_{self.slug}",
         )
-        if area_type == self.slug or area_id in self.child_areas:
-            return await self.reload()
 
-    @Throttle(min_time=timedelta(seconds=MetaAreaAutoReloadSettings.THROTTLE))
-    async def reload(self) -> None:
-        """Reload current entry."""
+    async def _delayed_reload(self) -> None:
+        """Reload after a short delay, batching rapid AREA_LOADED signals.
+
+        Global uses a longer delay so that floor/interior/exterior meta-areas
+        reload first and emit their own AREA_LOADED signals before global picks
+        them up.
+        """
+        delay: int = (
+            MetaAreaAutoReloadSettings.GLOBAL_DELAY
+            if self.slug == MetaAreaType.GLOBAL
+            else MetaAreaAutoReloadSettings.DELAY
+        )
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            self.logger.debug(
+                "%s: Reload debounced (superseded by a newer signal).", self.name
+            )
+            return
+
         self.logger.info("%s: Reloading entry.", self.name)
-
-        # Give some time for areas to finish loading,
-        # randomize to prevent staggering the CPU with
-        # stacked reloads.
-        max_delay: float = (
-            MetaAreaAutoReloadSettings.DELAY_MULTIPLIER
-            * MetaAreaAutoReloadSettings.DELAY
-        )
-        delay: float = random.uniform(
-            MetaAreaAutoReloadSettings.DELAY,
-            max_delay,
-        )
-
-        # Make Global load last
-        if self.slug == MetaAreaType.GLOBAL:
-            delay = max_delay
-
-        self.reloading = True
-        await asyncio.sleep(delay)
-
         self.hass.config_entries.async_schedule_reload(self.hass_config.entry_id)

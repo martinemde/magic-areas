@@ -8,14 +8,14 @@ from homeassistant.components.media_player.const import DOMAIN as MEDIA_PLAYER_D
 from custom_components.magic_areas.base.entities import MagicEntity
 from custom_components.magic_areas.base.magic import MagicArea
 from custom_components.magic_areas.const import (
-    CONF_FEATURE_AREA_AWARE_MEDIA_PLAYER,
-    CONF_FEATURE_MEDIA_PLAYER_GROUPS,
-    CONF_NOTIFICATION_DEVICES,
-    DATA_AREA_OBJECT,
+    DOMAIN,
     EMPTY_STRING,
     META_AREA_GLOBAL,
-    MODULE_DATA,
+    Features,
     MagicAreasFeatureInfoMediaPlayerGroups,
+)
+from custom_components.magic_areas.const.area_aware_media_player import (
+    AreaAwareMediaPlayerOptions,
 )
 from custom_components.magic_areas.helpers.area import get_area_from_config_entry
 from custom_components.magic_areas.media_player.area_aware_media_player import (
@@ -35,7 +35,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     entities_to_add: list[AreaAwareMediaPlayer | AreaMediaPlayerGroup] = []
 
     # Media Player Groups
-    if area.has_feature(CONF_FEATURE_MEDIA_PLAYER_GROUPS):
+    if area.has_feature(Features.MEDIA_PLAYER_GROUPS):
         _LOGGER.debug("%s: Setting up media player groups.", area.name)
         entities_to_add.extend(setup_media_player_group(area))
 
@@ -68,13 +68,13 @@ def setup_media_player_group(area):
 
 def setup_area_aware_media_player(area):
     """Create Area-aware media player."""
-    ma_data = area.hass.data[MODULE_DATA]
-
     # Check if we have areas with MEDIA_PLAYER_DOMAIN entities
     areas_with_media_players = []
 
-    for entry in ma_data.values():
-        current_area = entry[DATA_AREA_OBJECT]
+    for entry in area.hass.config_entries.async_entries(DOMAIN):
+        if not hasattr(entry, "runtime_data") or entry.runtime_data is None:
+            continue
+        current_area = entry.runtime_data
 
         # Skip meta areas
         if current_area.is_meta():
@@ -82,7 +82,7 @@ def setup_area_aware_media_player(area):
             continue
 
         # Skip areas with feature not enabled
-        if not current_area.has_feature(CONF_FEATURE_AREA_AWARE_MEDIA_PLAYER):
+        if not current_area.has_feature(Features.AREA_AWARE_MEDIA_PLAYER):
             _LOGGER.debug(
                 "%s: Does not have Area-aware media player feature enabled, skipping.",
                 current_area.name,
@@ -97,9 +97,9 @@ def setup_area_aware_media_player(area):
             continue
 
         # Skip areas without notification devices set
-        notification_devices = current_area.feature_config(
-            CONF_FEATURE_AREA_AWARE_MEDIA_PLAYER
-        ).get(CONF_NOTIFICATION_DEVICES)
+        notification_devices = current_area.config.get(
+            AreaAwareMediaPlayerOptions.NOTIFICATION_DEVICES
+        )
 
         if not notification_devices:
             _LOGGER.debug(

@@ -15,11 +15,10 @@ from homeassistant.helpers.event import async_track_state_change_event
 from custom_components.magic_areas.base.entities import MagicEntity
 from custom_components.magic_areas.base.magic import MagicArea
 from custom_components.magic_areas.const import (
-    ATTR_ACTIVE_SENSORS,
-    CONF_BLE_TRACKER_ENTITIES,
+    CommonAttributes,
     MagicAreasFeatureInfoBLETrackers,
-    MagicAreasFeatures,
 )
+from custom_components.magic_areas.const.ble_trackers import BleTrackerOptions
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,14 +35,12 @@ class AreaBLETrackerBinarySensor(MagicEntity, BinarySensorEntity):
         MagicEntity.__init__(self, area, domain=BINARY_SENSOR_DOMAIN)
         BinarySensorEntity.__init__(self)
 
-        self._sensors = self.area.feature_config(MagicAreasFeatures.BLE_TRACKER).get(
-            CONF_BLE_TRACKER_ENTITIES, []
-        )
+        self._sensors = self.area.config.get(BleTrackerOptions.ENTITIES)
 
         self._attr_device_class = BinarySensorDeviceClass.OCCUPANCY
         self._attr_extra_state_attributes = {
             ATTR_ENTITY_ID: self._sensors,
-            ATTR_ACTIVE_SENSORS: [],
+            CommonAttributes.ACTIVE_SENSORS.value: [],
         }
         self._attr_is_on: bool = False
 
@@ -103,5 +100,7 @@ class AreaBLETrackerBinarySensor(MagicEntity, BinarySensorEntity):
         )
 
         self._attr_is_on = calculated_state
-        self._attr_extra_state_attributes[ATTR_ACTIVE_SENSORS] = active_sensors
+        self._attr_extra_state_attributes[CommonAttributes.ACTIVE_SENSORS.value] = (
+            active_sensors
+        )
         self.schedule_update_ha_state()

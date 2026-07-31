@@ -1,6 +1,5 @@
 """Tests for the BLE Tracker feature."""
 
-import asyncio
 from collections.abc import AsyncGenerator
 import logging
 from typing import Any
@@ -22,14 +21,8 @@ from homeassistant.components.switch.const import DOMAIN as SWITCH_DOMAIN
 from homeassistant.const import ATTR_ENTITY_ID, SERVICE_TURN_ON, STATE_OFF, STATE_ON
 from homeassistant.core import HomeAssistant
 
-from custom_components.magic_areas.const import (
-    CONF_CLIMATE_CONTROL_ENTITY_ID,
-    CONF_CLIMATE_CONTROL_PRESET_CLEAR,
-    CONF_CLIMATE_CONTROL_PRESET_OCCUPIED,
-    CONF_ENABLED_FEATURES,
-    DOMAIN,
-    MagicAreasFeatures,
-)
+from custom_components.magic_areas.const import DOMAIN
+from custom_components.magic_areas.const.climate_control import ClimateControlOptions
 
 from tests.const import DEFAULT_MOCK_AREA
 from tests.helpers import (
@@ -39,6 +32,7 @@ from tests.helpers import (
     init_integration,
     setup_mock_entities,
     shutdown_integration,
+    trigger_occupancy,
 )
 from tests.mocks import MockBinarySensor, MockClimate
 
@@ -62,15 +56,13 @@ def mock_config_entry_climate_control() -> MockConfigEntry:
     """Fixture for mock configuration entry."""
     data = get_basic_config_entry_data(DEFAULT_MOCK_AREA)
     data.update(
-        {
-            CONF_ENABLED_FEATURES: {
-                MagicAreasFeatures.CLIMATE_CONTROL: {
-                    CONF_CLIMATE_CONTROL_ENTITY_ID: MOCK_CLIMATE_ENTITY_ID,
-                    CONF_CLIMATE_CONTROL_PRESET_OCCUPIED: PRESET_NONE,
-                    CONF_CLIMATE_CONTROL_PRESET_CLEAR: PRESET_AWAY,
-                },
+        ClimateControlOptions.to_config(
+            {
+                ClimateControlOptions.ENTITY_ID.key: MOCK_CLIMATE_ENTITY_ID,
+                ClimateControlOptions.PRESET_OCCUPIED.key: PRESET_NONE,
+                ClimateControlOptions.PRESET_CLEAR.key: PRESET_AWAY,
             }
-        }
+        )
     )
     return MockConfigEntry(domain=DOMAIN, data=data)
 
@@ -190,8 +182,7 @@ async def test_climate_control_logic(
     await hass.async_block_till_done()
 
     # Area occupied, preset should be PRESET_NONE
-    hass.states.async_set(motion_sensor_entity_id, STATE_ON)
-    await hass.async_block_till_done()
+    await trigger_occupancy(hass, motion_sensor_entity_id, occupied=True)
 
     motion_sensor_state = hass.states.get(motion_sensor_entity_id)
     assert_state(motion_sensor_state, STATE_ON)
@@ -203,21 +194,13 @@ async def test_climate_control_logic(
     assert_attribute(climate_state, ATTR_PRESET_MODE, PRESET_NONE)
 
     # Area clear, preset should be PRESET_AWAY
-    hass.states.async_set(motion_sensor_entity_id, STATE_OFF)
-    await hass.async_block_till_done()
+    await trigger_occupancy(hass, motion_sensor_entity_id, occupied=False)
 
     motion_sensor_state = hass.states.get(motion_sensor_entity_id)
     assert_state(motion_sensor_state, STATE_OFF)
 
     area_sensor_state = hass.states.get(AREA_SENSOR_ENTITY_ID)
     assert_state(area_sensor_state, STATE_OFF)
-
-    # A bit of voodoo waiting for the climate group to act
-    # I know this is lame and kinda hail-mary but hey! if you know
-    # how to fix it, let me know!
-    for _i in range(100):
-        await asyncio.sleep(0.1)
-        await hass.async_block_till_done()
 
     climate_state = hass.states.get(MOCK_CLIMATE_ENTITY_ID)
     assert_attribute(climate_state, ATTR_PRESET_MODE, PRESET_AWAY)
