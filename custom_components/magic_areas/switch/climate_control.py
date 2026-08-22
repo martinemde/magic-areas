@@ -8,6 +8,7 @@ from homeassistant.components.climate.const import (
     SERVICE_SET_PRESET_MODE,
 )
 from homeassistant.const import ATTR_ENTITY_ID, EntityCategory
+from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from custom_components.magic_areas.base.magic import MagicArea
@@ -39,11 +40,18 @@ class ClimateControlSwitch(SwitchBase):
 
     preset_map: dict[str, str]
     climate_entity_id: str | None
+    _applied_preset: str | None
 
     def __init__(self, area: MagicArea) -> None:
         """Initialize the Climate control switch."""
 
         SwitchBase.__init__(self, area)
+
+        # The preset this switch last commanded. We only push a new preset when
+        # the target for the current area state differs from this, which both
+        # preserves a preset the user set by hand and applies the right one at
+        # startup. None means we have not applied anything yet.
+        self._applied_preset = None
 
         self.climate_entity_id = self.area.feature_config(
             MagicAreasFeatures.CLIMATE_CONTROL
@@ -87,6 +95,27 @@ class ClimateControlSwitch(SwitchBase):
             )
         )
 
+        # Apply the current state's preset once we are added. After a restart
+        # Magic Areas restores the area as occupied and fires a single
+        # AREA_STATE_CHANGED with an empty delta (nothing transitioned), so the
+        # switch never sees a clear->occupied edge; without this catch-up the
+        # climate would stay on its pre-restart preset (e.g. away) indefinitely.
+        # Deferred a tick so the presence sensor has restored area.states first;
+        # the event handler is the backstop if the area state isn't ready yet.
+        self.hass.loop.call_soon_threadsafe(self._schedule_apply_current_state)
+
+    @callback
+    def _schedule_apply_current_state(self, *args) -> None:
+        """Schedule an async application of the current area state's preset."""
+        self.hass.async_create_task(
+            self.apply_current_state(), "magic_areas climate control initial preset"
+        )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable control and immediately apply the current state's preset."""
+        await super().async_turn_on(**kwargs)
+        await self.apply_current_state()
+
     async def area_state_changed(self, area_id, states_tuple):
         """Handle area state change event."""
 
@@ -103,22 +132,55 @@ class ClimateControlSwitch(SwitchBase):
             )
             return
 
-        priority_states: list[str] = [
-            AreaStates.SLEEP,
-            AreaStates.EXTENDED,
-            AreaStates.OCCUPIED,
-        ]
+        await self.apply_current_state()
 
-        # Handle area clear because the other states doesn't matter
-        if self.area.has_state(AreaStates.CLEAR):
-            if self.preset_map[AreaStates.CLEAR]:
-                await self.apply_preset(AreaStates.CLEAR)
+    async def apply_current_state(self) -> None:
+        """Apply the preset for the area's current state, if it changed.
+
+        Magic Areas fires AREA_STATE_CHANGED on every tracked-sensor update,
+        usually with an empty delta while the area stays occupied. Rather than
+        keying off the delta, we track the preset this switch last commanded
+        (`_applied_preset`) and only push a new one when the target for the
+        current area state actually differs. That preserves a preset the user set
+        by hand -- no-op events resolve to the same target we already applied, so
+        we do nothing -- while still applying the right preset on genuine
+        transitions and once at startup (when `_applied_preset` is still None).
+        """
+
+        if not self.is_on:
             return
 
-        # Handle each state top priority to last, returning early
-        for p_state in priority_states:
+        target_state = self._target_state()
+        if target_state is None:
+            return
+
+        target_preset = self.preset_map[target_state]
+        if not target_preset:
+            return
+
+        if target_preset == self._applied_preset:
+            self.logger.debug(
+                "%s: Preset already %s, leaving climate untouched.",
+                self.name,
+                target_preset,
+            )
+            return
+
+        await self.apply_preset(target_state)
+
+    def _target_state(self) -> str | None:
+        """Return the area state whose preset should apply now, or None."""
+
+        # Area clear takes precedence; the occupancy states don't matter then.
+        if self.area.has_state(AreaStates.CLEAR):
+            return AreaStates.CLEAR
+
+        # Highest priority state that is active and has a preset configured.
+        for p_state in (AreaStates.SLEEP, AreaStates.EXTENDED, AreaStates.OCCUPIED):
             if self.area.has_state(p_state) and self.preset_map[p_state]:
-                return await self.apply_preset(p_state)
+                return p_state
+
+        return None
 
     async def apply_preset(self, state_name: str):
         """Set climate entity to given preset."""
@@ -134,6 +196,7 @@ class ClimateControlSwitch(SwitchBase):
                     ATTR_PRESET_MODE: selected_preset,
                 },
             )
+            self._applied_preset = selected_preset
         # pylint: disable-next=broad-exception-caught
         except Exception as e:
             self.logger.error("%s: Error applying preset: %s", self.name, str(e))
