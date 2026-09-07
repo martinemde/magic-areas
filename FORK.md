@@ -3,9 +3,10 @@
 `martinemde/magic-areas` tracks `jseidl/magic-areas` and carries the patches
 needed to run the integration on this Home Assistant instance.
 
-Upstream's last release is **4.4.1 (Sept 2025)**, but `main` has since
-accumulated fixes that are merged and unreleased — so this fork is based on
-upstream **`main`**, not on the 4.4.1 tag.
+Upstream released **4.4.2** on 2026-08-10; it is upstream `main` with nothing
+but a version bump, so this fork's line already contained every line of it.
+The fork stays based on upstream **`main`** rather than on a release tag,
+because upstream tags lag `main` by months.
 
 Home Assistant is installed from this fork rather than upstream because a HACS
 update from upstream silently reverts every local patch, and one of them
@@ -17,6 +18,7 @@ previously stopped Magic Areas turning lights on anywhere.
 |---|---|---|
 | dispatcher subscriptions leaked on reload | `light.py`, `binary_sensor/presence.py` | PR #635 — **open** |
 | climate preset not applied on startup | `switch/climate_control.py` | not submitted |
+| meta-area features wiped on options update | `const.py` | PR #637 — **open** |
 
 Carried previously and **now dropped**, because upstream fixed it on `main`:
 
@@ -37,19 +39,39 @@ Both are on `main` and in no upstream release:
 - `patched/main` is the deployed line: upstream `main` plus the patches above,
   one commit each.
 - `patched/4.4.x` is the previous line, off the `4.4.1` tag. Superseded.
-- Releases are cut from `patched/main`. Versions `4.4.2` / `4.4.3` are this
-  fork's, not upstream's — upstream `main` still declares 4.4.1.
+- Releases are cut from `patched/main`. Versions `4.4.2` / `4.4.3` / `4.4.4`
+  are this fork's, not upstream's.
+
+**Tag collision.** This fork's `4.4.2` tag and upstream's `4.4.2` tag are
+different commits, so a fetch of both remotes leaves one of them unfetched:
+`git fetch upstream --tags` reports `! [rejected] 4.4.2 (would clobber
+existing tag)`. Whichever remote was fetched first wins locally. Read release
+tags from GitHub (`gh release view <tag> -R martinemde/magic-areas`) rather
+than trusting a local tag of that name. Fork versions from `4.4.3` on do not
+collide.
 
 ## Rebasing onto newer upstream
 
 ```bash
-git fetch upstream --tags
-git checkout -b patched/<new> upstream/main     # or a new upstream tag
-git cherry-pick <the patch commits from patched/main>
+jj git fetch --remote upstream
+jj diff --from <patched/main's upstream base> --to <new upstream head> --stat
 ```
 
+If that diff is empty of code — as upstream's 4.4.2 release was, a pure version
+bump — there is nothing to rebase; add patches on top of `patched/main` and cut
+a release. Otherwise duplicate the patch commits onto the new upstream head:
+
+```bash
+jj duplicate <patch commit> -d <new upstream head>
+```
+
+A released commit is immutable in jj and that refusal is correct — never
+`--ignore-immutable` to rewrite a line that has already been tagged and
+deployed. Cut a new version on top instead.
+
 Then bump `custom_components/magic_areas/manifest.json`, tag, and release.
-Check #635 first — if it has landed, drop that commit rather than carrying it.
+Check each open PR first — if one has landed upstream, drop that commit rather
+than carrying it.
 
 ## Verifying a deploy
 
